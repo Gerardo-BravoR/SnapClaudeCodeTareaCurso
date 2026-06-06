@@ -84,28 +84,59 @@ Autentica un usuario existente.
 
 ### POST /urls `🔒`
 
-Crea una URL corta. Cada código es de 6 caracteres alfanuméricos aleatorios.
+Crea una URL corta. Si no se proporciona `alias`, se genera un código aleatorio de 6 caracteres alfanuméricos.
 
 **Body**
 ```json
-{ "url": "https://url-larga.com/ruta" }
+{
+  "url": "https://url-larga.com/ruta",
+  "alias": "mi-enlace"
+}
 ```
+
+`alias` es opcional. Si se incluye debe tener entre 3 y 20 caracteres alfanuméricos o guiones (`a-z`, `A-Z`, `0-9`, `-`).
 
 **Respuestas**
 
 | Código | Descripción |
 |--------|-------------|
 | 201 | URL creada |
-| 400 | `url` ausente o no es string |
+| 400 | `url` ausente/inválida, o `alias` con formato incorrecto |
 | 401 | Sin autenticación |
+| 409 | El alias ya está en uso |
 
 **201 — Éxito**
 ```json
 {
-  "code": "aB3xYz",
+  "code": "mi-enlace",
   "url": "https://url-larga.com/ruta",
-  "shortUrl": "/aB3xYz"
+  "shortUrl": "/mi-enlace"
 }
+```
+
+---
+
+### GET /urls/mine `🔒`
+
+Lista todas las URLs del usuario autenticado con conteo de clicks. Ordenado por fecha de creación descendente.
+
+**Respuestas**
+
+| Código | Descripción |
+|--------|-------------|
+| 200 | Lista de URLs del usuario |
+| 401 | Sin autenticación |
+
+**200 — Éxito**
+```json
+[
+  {
+    "code": "mi-enlace",
+    "url": "https://url-larga.com/ruta",
+    "created_at": 1748995200,
+    "clicks": 42
+  }
+]
 ```
 
 ---

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Snap — Dashboard</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="dashboard-page">
+
+<nav class="nav">
+  <a href="/dashboard.html" class="nav-logo">Snap</a>
+  <div class="nav-right">
+    <span class="nav-user" id="nav-user"></span>
+    <button class="btn-ghost" id="btn-logout">Cerrar sesión</button>
+  </div>
+</nav>
+
+<main class="main">
+  <!-- Stats -->
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-label">URLs creadas</div>
+      <div class="stat-value" id="stat-urls">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total de clicks</div>
+      <div class="stat-value" id="stat-clicks">—</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Clicks por URL</div>
+      <div class="stat-value" id="stat-avg">—</div>
+    </div>
+  </div>
+
+  <!-- Crear URL -->
+  <div class="section">
+    <div class="section-title">Acortar URL</div>
+    <form class="create-form" id="create-form" novalidate>
+      <div class="field">
+        <label for="input-url">URL larga</label>
+        <input id="input-url" type="url" placeholder="https://ejemplo.com/ruta/muy/larga" required />
+      </div>
+      <div class="field">
+        <label for="input-alias">Alias (opcional)</label>
+        <input id="input-alias" type="text" placeholder="mi-enlace" style="width:160px" />
+      </div>
+      <button type="submit" class="btn-create" id="btn-create">Acortar</button>
+    </form>
+    <div id="create-feedback" class="create-feedback"></div>
+  </div>
+
+  <!-- Tabla de URLs -->
+  <div class="section">
+    <div class="section-title">Mis URLs</div>
+    <div id="urls-container">
+      <div class="empty-state">Cargando…</div>
+    </div>
+  </div>
+</main>
+
+<script type="module">
+  import { requireAuth, getToken, clearSession } from '/js/auth.js'
+  import { getDashboard, getMyUrls, createUrl, deleteUrl } from '/js/api.js'
+
+  requireAuth()
+
+  const user = JSON.parse(localStorage.getItem('snap_user') || '{}')
+  document.getElementById('nav-user').textContent = `Hola, ${user.name ?? ''}`
+
+  document.getElementById('btn-logout').addEventListener('click', () => {
+    clearSession()
+    window.location.href = '/index.html'
+  })
+
+  // ── Cargar datos ──
+  async function loadAll() {
+    try {
+      const [dash, urls] = await Promise.all([getDashboard(), getMyUrls()])
+      renderStats(dash.totals)
+      renderUrls(urls)
+    } catch (err) {
+      if (err.status === 401) { clearSession(); window.location.href = '/index.html' }
+    }
+  }
+
+  function renderStats(totals) {
+    document.getElementById('stat-urls').textContent   = totals.urls
+    document.getElementById('stat-clicks').textContent = totals.clicks
+    document.getElementById('stat-avg').textContent    = totals.avg_clicks_per_url
+  }
+
+  function renderUrls(urls) {
+    const container = document.getElementById('urls-container')
+    if (urls.length === 0) {
+      container.innerHTML = '<div class="empty-state">Aún no has creado ninguna URL. ¡Empieza acortando una arriba!</div>'
+      return
+    }
+
+    const rows = urls.map(u => {
+      const short = `${window.location.origin}/${u.code}`
+      return `
+        <tr>
+          <td><span class="url-code">${u.code}</span></td>
+          <td><span class="url-original" title="${u.url}">${u.url}</span></td>
+          <td class="url-clicks">${u.clicks}</td>
+          <td>
+            <div class="url-actions">
+              <button class="btn-icon" onclick="copyUrl('${short}', this)">Copiar</button>
+              <button class="btn-icon danger" onclick="removeUrl('${u.code}', this)">Eliminar</button>
+            </div>
+          </td>
+        </tr>`
+    }).join('')
+
+    container.innerHTML = `
+      <table class="url-table">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>URL original</th>
+            <th style="text-align:right">Clicks</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>`
+  }
+
+  // ── Crear URL ──
+  const createForm  = document.getElementById('create-form')
+  const btnCreate   = document.getElementById('btn-create')
+  const feedback    = document.getElementById('create-feedback')
+
+  function showFeedback(msg, isError = false) {
+    feedback.textContent = msg
+    feedback.style.color = isError ? 'var(--error-text)' : 'var(--success-text)'
+  }
+
+  createForm.addEventListener('submit', async e => {
+    e.preventDefault()
+    const url   = document.getElementById('input-url').value.trim()
+    const alias = document.getElementById('input-alias').value.trim()
+
+    if (!url) { showFeedback('Introduce una URL.', true); return }
+
+    btnCreate.disabled    = true
+    btnCreate.textContent = 'Acortando…'
+    feedback.textContent  = ''
+
+    try {
+      const result = await createUrl(url, alias || undefined)
+      document.getElementById('input-url').value   = ''
+      document.getElementById('input-alias').value = ''
+      showFeedback(`URL creada: ${window.location.origin}${result.shortUrl}`)
+      await loadAll()
+    } catch (err) {
+      showFeedback(err.message, true)
+    } finally {
+      btnCreate.disabled    = false
+      btnCreate.textContent = 'Acortar'
+    }
+  })
+
+  // ── Copiar ──
+  window.copyUrl = async (url, btn) => {
+    await navigator.clipboard.writeText(url)
+    btn.textContent = '¡Copiado!'
+    btn.classList.add('copied')
+    setTimeout(() => { btn.textContent = 'Copiar'; btn.classList.remove('copied') }, 1800)
+  }
+
+  // ── Eliminar ──
+  window.removeUrl = async (code, btn) => {
+    btn.disabled    = true
+    btn.textContent = '…'
+    try {
+      await deleteUrl(code)
+      await loadAll()
+    } catch (err) {
+      btn.disabled    = false
+      btn.textContent = 'Eliminar'
+      showFeedback(err.message, true)
+    }
+  }
+
+  loadAll()
+</script>
+
+</body>
+</html>

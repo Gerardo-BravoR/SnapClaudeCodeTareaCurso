@@ -33,24 +33,45 @@ const deleteUrl = db.prepare('DELETE FROM urls WHERE code = ?')
 const listUrls = db.prepare<[], { code: string; url: string; created_at: number }>(
   'SELECT code, original_url AS url, created_at FROM urls ORDER BY created_at DESC, id DESC',
 )
+const listMyUrls = db.prepare<[number], { code: string; url: string; created_at: number; clicks: number }>(`
+  SELECT u.code, u.original_url AS url, u.created_at, COUNT(c.id) AS clicks
+  FROM urls u
+  LEFT JOIN clicks c ON c.url_id = u.id
+  WHERE u.user_id = ?
+  GROUP BY u.id
+  ORDER BY u.created_at DESC, u.id DESC
+`)
 
 // POST /urls — protegido: crea una URL corta asociada al usuario autenticado
 urlsRouter.post('/', requireAuth, (req: Request, res: Response) => {
-  const { url } = req.body as { url?: unknown }
+  const { url, alias } = req.body as { url?: unknown; alias?: unknown }
   if (!url || typeof url !== 'string') {
     res.status(400).json({ error: 'url is required and must be a string' })
     return
   }
 
   let code: string
-  let attempts = 0
-  do {
-    code = generateCode()
-    if (++attempts > 10) {
-      res.status(500).json({ error: 'Could not generate a unique code' })
+  if (alias && typeof alias === 'string' && alias.trim() !== '') {
+    const trimmed = alias.trim()
+    if (!/^[a-zA-Z0-9-]{3,20}$/.test(trimmed)) {
+      res.status(400).json({ error: 'El alias debe tener entre 3 y 20 caracteres alfanuméricos o guiones' })
       return
     }
-  } while (findCode.get(code))
+    if (findCode.get(trimmed)) {
+      res.status(409).json({ error: 'Ese alias ya está en uso' })
+      return
+    }
+    code = trimmed
+  } else {
+    let attempts = 0
+    do {
+      code = generateCode()
+      if (++attempts > 10) {
+        res.status(500).json({ error: 'Could not generate a unique code' })
+        return
+      }
+    } while (findCode.get(code))
+  }
 
   insertUrl.run(code, url, req.user!.id)
   res.status(201).json({ code, url, shortUrl: `/${code}` })
@@ -72,6 +93,11 @@ urlsRouter.delete('/:code', requireAuth, (req: Request, res: Response) => {
 
   deleteUrl.run(code)
   res.status(204).send()
+})
+
+// GET /urls/mine — protegido: lista URLs del usuario autenticado con conteo de clicks
+urlsRouter.get('/mine', requireAuth, (req: Request, res: Response) => {
+  res.json(listMyUrls.all(req.user!.id))
 })
 
 // GET /urls — público: lista todas las URLs
