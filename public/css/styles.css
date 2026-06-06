@@ -313,6 +313,7 @@ body.dashboard-page {
 }
 
 .url-original {
+  display: block;
   color: var(--text-muted);
   max-width: 340px;
   overflow: hidden;
